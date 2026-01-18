@@ -529,6 +529,15 @@
             margin-bottom: 10px;
         }
 
+        .player-row .player-name {
+            text-transform: capitalize;
+            font-weight: 500;
+        }
+
+        .player-row .player-score {
+            font-weight: 500;
+        }
+
         .btn-remove {
             padding: 10px 15px;
             background: #ef4444;
@@ -1541,9 +1550,12 @@
         function loadDataLocal() {
             const saved = localStorage.getItem('mahjongPlayers');
             players = saved ? JSON.parse(saved) : {};
+            renderAll();
+            console.log('✅ Data loaded from localStorage');
         }
 
         async function saveData() {
+            console.log('Saving data...', players);
             if (window.firebaseDB && window.firebaseDB.isReady) {
                 try {
                     const db = window.firebaseDB.database;
@@ -1555,6 +1567,7 @@
                     saveDataLocal();
                 }
             } else {
+                console.log('Firebase not ready, saving to localStorage');
                 saveDataLocal();
             }
             updateTimestamp();
@@ -1562,6 +1575,7 @@
 
         function saveDataLocal() {
             localStorage.setItem('mahjongPlayers', JSON.stringify(players));
+            console.log('✅ Data saved to localStorage');
         }
 
         // Season management
@@ -1737,52 +1751,130 @@
         async function saveSession(e) {
             e.preventDefault();
             
-            const names = document.querySelectorAll('.player-name');
-            const scores = document.querySelectorAll('.player-score');
+            console.log('=== SAVE SESSION STARTED ===');
             
-            let maxScore = -Infinity;
-            let winner = '';
-            const sessionData = [];
-
-            for (let i = 0; i < names.length; i++) {
-                const name = names[i].value.trim();
-                const score = parseInt(scores[i].value);
-                
-                sessionData.push({ name, score });
-                
-                if (score > maxScore) {
-                    maxScore = score;
-                    winner = name;
+            try {
+                // Get players container
+                const container = document.getElementById('playersContainer');
+                if (!container) {
+                    alert('❌ Container tidak ditemukan!');
+                    console.error('playersContainer not found');
+                    return;
                 }
+                
+                // Get all player rows
+                const rows = container.querySelectorAll('.player-row');
+                console.log('Found player rows:', rows.length);
+                
+                if (rows.length === 0) {
+                    alert('❌ Tidak ada player yang diinput!');
+                    return;
+                }
+                
+                let maxScore = -Infinity;
+                let winner = '';
+                const sessionData = [];
+
+                // Collect data from each row
+                for (let i = 0; i < rows.length; i++) {
+                    const row = rows[i];
+                    const nameInput = row.querySelector('.player-name');
+                    const scoreInput = row.querySelector('.player-score');
+                    
+                    if (!nameInput || !scoreInput) {
+                        console.error(`Row ${i+1}: Missing inputs!`);
+                        alert(`❌ Error pada baris ${i+1}: Input tidak ditemukan!`);
+                        return;
+                    }
+                    
+                    const rawName = nameInput.value.trim();
+                    const scoreValue = scoreInput.value;
+                    const score = parseInt(scoreValue);
+                    
+                    // Validate
+                    if (!rawName || rawName === '') {
+                        alert(`❌ Nama player ke-${i + 1} tidak boleh kosong!`);
+                        return;
+                    }
+                    
+                    if (isNaN(score) || scoreValue === '') {
+                        alert(`❌ Score player "${rawName}" harus angka!`);
+                        return;
+                    }
+                    
+                    // Normalize name (capitalize properly)
+                    const normalizedName = normalizePlayerName(rawName);
+                    
+                    console.log(`Player ${i+1}: input="${rawName}" → normalized="${normalizedName}", score=${score}`);
+                    
+                    sessionData.push({ name: normalizedName, score });
+                    
+                    if (score > maxScore) {
+                        maxScore = score;
+                        winner = normalizedName;
+                    }
+                }
+
+                console.log('✅ Session data collected:', sessionData);
+                console.log('🏆 Winner:', winner, 'with score:', maxScore);
+
+                // Update players (with case-insensitive matching)
+                sessionData.forEach(({ name, score }) => {
+                    // Check if player exists (case-insensitive)
+                    const existingPlayerName = findExistingPlayer(name);
+                    const playerKey = existingPlayerName || name;
+                    
+                    if (!players[playerKey]) {
+                        console.log('Creating new player:', playerKey);
+                        players[playerKey] = {
+                            bestScore: score,
+                            sessions: 0,
+                            wins: 0,
+                            allScores: []
+                        };
+                    } else {
+                        console.log('Updating existing player:', playerKey);
+                    }
+
+                    players[playerKey].sessions++;
+                    players[playerKey].allScores.push(score);
+
+                    if (score > players[playerKey].bestScore) {
+                        players[playerKey].bestScore = score;
+                        console.log(`New best score for ${playerKey}:`, score);
+                    }
+
+                    if (name.toLowerCase() === winner.toLowerCase()) {
+                        players[playerKey].wins++;
+                        console.log(`${playerKey} won this session!`);
+                    }
+                });
+
+                console.log('✅ Players updated:', players);
+
+                // Save data
+                console.log('💾 Saving to Firebase/localStorage...');
+                await saveData();
+                console.log('✅ Data saved!');
+                
+                // Re-render
+                console.log('🔄 Re-rendering leaderboard...');
+                renderAll();
+                console.log('✅ Leaderboard rendered!');
+                
+                // Close input form
+                toggleInput();
+                
+                // Success message
+                alert(`✅ Sesi berhasil disimpan!\n🏆 Pemenang: ${winner} (${formatNumber(maxScore)} point)`);
+                
+                console.log('=== SAVE SESSION COMPLETED ===');
+                
+            } catch (error) {
+                console.error('❌ ERROR in saveSession:', error);
+                console.error('Error stack:', error.stack);
+                alert('❌ Gagal menyimpan data!\n\nError: ' + error.message + '\n\nCek Console (F12) untuk detail.');
             }
-
-            // Update players
-            sessionData.forEach(({ name, score }) => {
-                if (!players[name]) {
-                    players[name] = {
-                        bestScore: score,
-                        sessions: 0,
-                        wins: 0,
-                        allScores: []
-                    };
-                }
-
-                players[name].sessions++;
-                players[name].allScores.push(score);
-
-                if (score > players[name].bestScore) {
-                    players[name].bestScore = score;
-                }
-
-                if (name === winner) {
-                    players[name].wins++;
-                }
-            });
-
-            await saveData();
-            toggleInput();
-            
-            alert(`✅ Sesi berhasil disimpan!\n🏆 Pemenang: ${winner} (${formatNumber(maxScore)} point)`);
         }
 
         // Clear All
@@ -1808,10 +1900,13 @@
 
         // Render Functions
         function renderAll() {
+            console.log('🔄 renderAll called');
             const leaderboard = getLeaderboard();
+            console.log('📊 Leaderboard data:', leaderboard);
             renderStats(leaderboard);
             renderPodium(leaderboard);
             renderList(leaderboard);
+            console.log('✅ renderAll completed');
         }
 
         function getLeaderboard() {
@@ -1946,6 +2041,36 @@
                 minute: '2-digit'
             });
             document.getElementById('lastUpdate').textContent = `Last update: ${formatted}`;
+        }
+
+        // Name normalization functions
+        function capitalizeName(name) {
+            // Capitalize first letter of each word
+            return name
+                .trim()
+                .toLowerCase()
+                .split(' ')
+                .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+                .join(' ');
+        }
+
+        function normalizePlayerName(inputName) {
+            // Normalize name for storage and comparison
+            // Always capitalize properly for consistent display
+            return capitalizeName(inputName);
+        }
+
+        function findExistingPlayer(searchName) {
+            // Case-insensitive search for existing player
+            const normalizedSearch = searchName.toLowerCase().trim();
+            
+            for (const [playerName, data] of Object.entries(players)) {
+                if (playerName.toLowerCase() === normalizedSearch) {
+                    return playerName; // Return the existing capitalization
+                }
+            }
+            
+            return null; // Not found
         }
 
         // Initialize on load
